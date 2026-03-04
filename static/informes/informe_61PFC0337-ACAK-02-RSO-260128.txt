@@ -1,0 +1,99 @@
+========================================================================
+  REPORTE SEMANAL DE OBRA – ANÁLISIS AUTOMÁTICO
+========================================================================
+Nombre del archivo analizado: 61PFC0337-ACAK-02-RSO-260128.xlsx
+Fecha del informe: 2026-01-28
+Fecha de procesamiento: 2026-03-04 14:44:31
+
+📋 RESUMEN EJECUTIVO
+-----------------------------------------------------------------
+Fecha: 2026-01-28  |  SPI: 0.6356  |  CPI: 1.3489
+
+📊 DATOS GENERALES DEL PROYECTO
+-----------------------------------------------------------------
+  Proyecto                       PROYECTO CAMPO AUCA
+  Documento No                   SHY-FC-RSO-73
+  Fecha del Reporte              2026-01-28
+  Fecha Inicio Planificada       2025-11-15
+  Fecha Fin Planificada          2026-06-18
+  Fecha Inicio Real              2025-11-15
+  Fecha Fin Real                 .
+  Plazo Previsto (días)          215
+  Días Disruptivos               161
+  Plazo Ajustado (días)          376
+  SPI                            0.6356
+  CPI                            1.3489
+
+Interpretación de Índices:
+  SPI < 1 (0.6356): El proyecto está ATRASADO respecto al cronograma.
+  CPI > 1 (1.3489): El proyecto está POR DEBAJO del presupuesto (eficiente en costos).
+
+💰 ANÁLISIS FINANCIERO Y DE VALOR GANADO (EVM)
+-----------------------------------------------------------------
+  Costo Budget (BAC)                       3,047,472.66
+  Costo EAC                                2,867,487.56
+  Costo Real Acumulado (AC)                962,150.19
+  Valor Ganado Acumulado (EV)              1,297,886.85
+  Valor Planificado Acumulado (PV)         2,041,873.91
+
+Variaciones Clave:
+  CV = EV - AC = 335,736.66 → Favorable (bajo costo)
+  SV = EV - PV = -743,987.06 → Desfavorable (atraso)
+  Proyección de ahorro/sobrecosto al cierre = 179,985.10
+
+📈 ANÁLISIS DE AVANCE FÍSICO
+-----------------------------------------------------------------
+  % Avance Actual Acumulado           42.59%
+  % Avance Previsto Acumulado         81.81%
+  Retraso Físico                      39.22%
+
+  El proyecto ha completado solo 42.59% del trabajo, cuando debería haber completado 81.81%, lo que confirma el atraso señalado por el SPI.
+
+🏗️ ESTRUCTURA DEL TRABAJO (WBS) POR TRAMO
+-----------------------------------------------------------------
+  Se identificaron 36 tramos principales en el proyecto.
+
+  Tramo                                                    %Budget      %EAC   %Avance
+  -------------------------------------------------------------------------------------
+  Línea de Flujo Aérea ABS 0+000 - ABS 0+010                 0.21%     0.14%     7.91%
+  Línea de Flujo Enterrada ABS 0+010 - ABS 0+074             0.42%     0.00%   100.00%
+  Línea de Flujo Aérea ABS 0+074 - ABS 1+226                13.65%    13.22%    83.80%
+  Línea de Flujo Enterrada ABS 1+226 - ABS 1+432             2.09%     1.75%    54.30%
+  Línea de Flujo Aérea ABS 1+432 - ABS 1+598                 1.83%     1.85%    15.50%
+  Línea de Flujo Enterrada ABS 1+598 - ABS 1+640             0.42%     0.28%    16.06%
+  Línea de Flujo Aérea ABS 1+640 - ABS 1+850                 2.88%     3.55%    54.55%
+  Línea de Flujo Enterrada ABS 1+850 - ABS 1+860             2.95%     0.06%    99.59%
+  Línea de Flujo Aérea ABS 1+860 - ABS 1+920                 0.72%     0.84%    80.41%
+  Línea de Flujo Enterrada ABS 1+920 - ABS 1+935             2.93%     0.09%    99.52%
+  Línea de Flujo Aérea ABS 1+935 - ABS 2+183                 3.11%     3.60%    66.45%
+  Línea de Flujo Enterrada ABS 2+183 - ABS 2+215             0.32%     0.20%    85.59%
+  Línea de Flujo Aérea ABS 2+215 - ABS 2+351                 1.72%     1.86%    74.34%
+  Línea de Flujo Enterrada ABS 2+351 - ABS 2+453             1.01%     0.80%    21.21%
+  Línea de Flujo Aérea ABS 2+453 - ABS 2+795                 3.96%     4.13%    58.12%
+  Línea de Flujo Enterrada ABS 2+795 - ABS 2+988             1.87%     1.72%    40.65%
+  Línea de Flujo Aérea ABS 2+988 - ABS 3+133                 1.57%     1.57%    16.64%
+  Línea de Flujo Enterrada ABS 3+133 - ABS 3+199             0.65%     0.46%    13.72%
+  Línea de Flujo Aérea ABS 3+199 - ABS 3+277                 0.81%     0.79%    13.07%
+  Línea de Flujo Enterrada ABS 3+277 - ABS 3+339             0.62%     0.43%    16.22%
+  Línea de Flujo Aérea ABS 3+339 - ABS 3+480                 1.61%     1.61%    11.84%
+  Línea de Flujo Enterrada ABS 3+480 - ABS 3+903             4.10%     3.49%    13.96%
+  Línea de Flujo Aérea ABS 3+903 - ABS 3+950                 0.49%     0.49%    22.98%
+  Línea de Flujo Enterrada ABS 3+950 - ABS 3+963             0.13%     0.07%    13.54%
+  Línea de Flujo Aérea ABS 3+963 - ABS 4+239                 3.17%     3.49%    53.87%
+  Línea de Flujo Enterrada ABS 4+239 - ABS 4+529             2.86%     2.49%    42.51%
+  Línea de Flujo Aérea ABS 4+529 - ABS 4+593                 0.64%     0.73%    43.30%
+  Línea de Flujo Enterrada ABS 4+593 - ABS 4+959             3.62%     3.02%    22.42%
+  Línea de Flujo Aérea ABS 4+959 - ABS 5+106                 2.00%     2.25%    24.94%
+  Línea de Flujo Enterrada ABS 5+106 - ABS 5+138             0.29%     0.24%    19.36%
+  Línea de Flujo Aérea ABS 5+138 - ABS 5+185                 0.56%     0.53%    13.10%
+  Línea de Flujo Enterrada ABS 5+185 - ABS 5+248             0.53%     0.43%    16.04%
+  Línea de Flujo Aérea ABS 5+248 - ABS 6+429                13.29%    12.24%    19.92%
+  Línea de Flujo Enterrada ABS 6+429 - ABS 6+555             1.24%     0.87%    13.77%
+  Línea de Flujo Aérea ABS 6+555 - ABS 6+724                 1.70%     1.75%    13.45%
+  Línea de Flujo ABS 6+724 - ABS 7+002                       0.00%     2.73%     0.00%
+
+🧮 CONCLUSIÓN
+-----------------------------------------------------------------
+  Estado General: 🔴 Rojo (Estado Crítico)
+
+========================================================================

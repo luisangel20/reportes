@@ -1,0 +1,792 @@
+import pandas as pd
+import numpy as np
+import os
+import glob
+from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
+
+class AnalizadorReportesObra:
+    def __init__(self, ruta_carpeta):
+        """
+        Inicializa el analizador con la ruta de la carpeta que contiene los reportes Excel
+        """
+        self.ruta_carpeta = ruta_carpeta
+        self.reportes = {}
+        self.consolidado = None
+        
+    def cargar_reportes(self):
+        """
+        Carga todos los archivos Excel de la carpeta especificada con manejo robusto de errores
+        """
+        archivos = glob.glob(os.path.join(self.ruta_carpeta, "*.xlsx"))
+        
+        if not archivos:
+            raise FileNotFoundError(f"No se encontraron archivos Excel en {self.ruta_carpeta}")
+        
+        print(f"Cargando {len(archivos)} archivos...")
+        
+        for archivo in archivos:
+            try:
+                nombre_archivo = os.path.basename(archivo)
+                print(f"\nProcesando: {nombre_archivo}")
+                
+                # Leer todo el archivo sin procesar para inspeccionar
+                try:
+                    # Leer todas las hojas para ver qué contiene
+                    xls = pd.ExcelFile(archivo)
+                    print(f"  Hojas disponibles: {xls.sheet_names}")
+                    
+                    # Para tu caso específico, intentar con diferentes hojas
+                    # Primero intentar con 'RDO' que es la que mencionas
+                    if 'RDO' in xls.sheet_names:
+                        df_raw = pd.read_excel(archivo, sheet_name='RDO', header=None)
+                        print(f"  Tamaño del DataFrame (RDO): {df_raw.shape}")
+                        
+                        # Procesar el archivo
+                        fecha_reporte = self._extraer_fecha(archivo, nombre_archivo)
+                        df_procesado = self._procesar_dataframe_avanzado(df_raw, fecha_reporte)
+                        
+                        self.reportes[fecha_reporte] = {
+                            'dataframe': df_procesado,
+                            'archivo': nombre_archivo,
+                            'fecha': fecha_reporte
+                        }
+                        print(f"  ✓ Procesado correctamente - {fecha_reporte}")
+                    
+                    # Si no hay hoja RDO, intentar con la primera hoja
+                    else:
+                        print(f"  No se encontró hoja 'RDO', usando primera hoja: {xls.sheet_names[0]}")
+                        df_raw = pd.read_excel(archivo, sheet_name=xls.sheet_names[0], header=None)
+                        fecha_reporte = self._extraer_fecha(archivo, nombre_archivo)
+                        df_procesado = self._procesar_dataframe_avanzado(df_raw, fecha_reporte)
+                        
+                        self.reportes[fecha_reporte] = {
+                            'dataframe': df_procesado,
+                            'archivo': nombre_archivo,
+                            'fecha': fecha_reporte
+                        }
+                        print(f"  ✓ Procesado correctamente - {fecha_reporte}")
+                        
+                except Exception as e:
+                    print(f"  ✗ Error al leer archivo: {str(e)}")
+                    continue
+                    
+            except Exception as e:
+                print(f"  ✗ Error general: {str(e)}")
+                continue
+        
+        print(f"\nTotal de reportes cargados exitosamente: {len(self.reportes)}")
+        
+        if len(self.reportes) == 0:
+            print("⚠️  No se pudo cargar ningún reporte. Verifica el formato de los archivos.")
+    
+    def _extraer_fecha(self, archivo, nombre_archivo):
+        """
+        Extrae la fecha del reporte del nombre del archivo o del contenido
+        """
+        # Primero intentar del nombre del archivo (patrón común: 260128 = 2026-01-28)
+        import re
+        
+        # Buscar patrones de fecha
+        patrones = [
+            r'(\d{2})(\d{2})(\d{2})',  # 260128
+            r'(\d{4})-(\d{2})-(\d{2})',  # 2026-01-28
+            r'(\d{2})-(\d{2})-(\d{2})',  # 26-01-28
+            r'(\d{4})(\d{2})(\d{2})',  # 20260128
+        ]
+        
+        for patron in patrones:
+            match = re.search(patron, nombre_archivo)
+            if match:
+                grupos = match.groups()
+                if len(grupos) == 3:
+                    try:
+                        if len(grupos[0]) == 2:  # YYMMDD
+                            año = '20' + grupos[0] if int(grupos[0]) < 50 else '19' + grupos[0]
+                            return f"{año}-{grupos[1]}-{grupos[2]}"
+                        elif len(grupos[0]) == 4:  # YYYY-MM-DD o YYYYMMDD
+                            return f"{grupos[0]}-{grupos[1]}-{grupos[2]}"
+                    except:
+                        continue
+        
+        # Si no se encuentra en el nombre, usar fecha de modificación
+        fecha_mod = datetime.fromtimestamp(os.path.getmtime(archivo))
+        return fecha_mod.strftime('%Y-%m-%d')
+    
+    def _procesar_dataframe_avanzado(self, df_raw, fecha_reporte):
+        """
+        Procesamiento avanzado del dataframe para manejar formatos complejos
+        """
+        print(f"  Procesando DataFrame de {df_raw.shape[0]} filas × {df_raw.shape[1]} columnas")
+        
+        # 1. Encontrar la fila que contiene "Nombre Actividad"
+        fila_encabezado = None
+        for i in range(min(50, len(df_raw))):  # Buscar en las primeras 50 filas
+            fila_str = df_raw.iloc[i].astype(str).str.cat(sep=' ')
+            if 'Nombre Actividad' in fila_str:
+                fila_encabezado = i
+                print(f"  Encontrado encabezado en fila {i}: {fila_str[:100]}...")
+                break
+        
+        if fila_encabezado is None:
+            print("  ⚠️ No se encontró 'Nombre Actividad', buscando patrones alternativos...")
+            # Buscar otras columnas clave
+            for i in range(min(50, len(df_raw))):
+                fila_str = df_raw.iloc[i].astype(str).str.cat(sep=' ')
+                if any(keyword in fila_str for keyword in ['Código', 'ID', 'Costo', '% Avance']):
+                    fila_encabezado = i
+                    print(f"  Usando fila {i} como encabezado alternativo")
+                    break
+        
+        if fila_encabezado is None:
+            raise ValueError("No se pudo encontrar fila de encabezado")
+        
+        # 2. Usar la fila encontrada como nombres de columnas
+        nombres_columnas = df_raw.iloc[fila_encabezado].tolist()
+        
+        # 3. Manejar nombres de columna duplicados
+        nombres_unicos = []
+        contadores = {}
+        
+        for i, nombre in enumerate(nombres_columnas):
+            if pd.isna(nombre):
+                nombre = f'Columna_{i}'
+            
+            nombre_str = str(nombre)
+            if nombre_str in contadores:
+                contadores[nombre_str] += 1
+                nombre_unico = f"{nombre_str}_{contadores[nombre_str]}"
+            else:
+                contadores[nombre_str] = 0
+                nombre_unico = nombre_str
+            
+            nombres_unicos.append(nombre_unico)
+        
+        print(f"  Columnas encontradas: {len(nombres_unicos)}")
+        print(f"  Columnas únicas después de procesar duplicados")
+        
+        # 4. Crear DataFrame con los nombres únicos
+        df = df_raw.iloc[fila_encabezado + 1:].copy()
+        df.columns = nombres_unicos
+        
+        # 5. Limpiar filas vacías
+        df = df.replace('', np.nan)
+        
+        # Eliminar filas completamente vacías
+        df = df.dropna(how='all')
+        
+        # 6. Identificar y mapear columnas clave
+        columnas_mapeadas = self._mapear_columnas(df)
+        
+        # 7. Seleccionar y limpiar columnas importantes
+        columnas_a_mantener = []
+        for nombre_real, nombre_en_df in columnas_mapeadas.items():
+            if nombre_en_df:
+                columnas_a_mantener.append(nombre_en_df)
+                # Renombrar a nombre estándar
+                df = df.rename(columns={nombre_en_df: nombre_real})
+        
+        # Mantener solo las columnas mapeadas + cualquier otra que parezca relevante
+        todas_columnas = list(df.columns)
+        columnas_adicionales = [col for col in todas_columnas 
+                               if col not in columnas_a_mantener 
+                               and not col.startswith('Columna_')
+                               and not col.startswith('Unnamed')]
+        
+        columnas_finales = list(columnas_mapeadas.keys()) + columnas_adicionales
+        df = df[[col for col in columnas_finales if col in df.columns]]
+        
+        # 8. Convertir columnas numéricas
+        columnas_numericas = [
+            'Costo Budget', 'Costo EAC', 'AC Anterior', 'AC Semanal', 'AC Actual',
+            'EV Anterior', 'EV Semanal', 'EV Actual', 'PV Costo Planificado',
+            '% AvanceActual Acumulado', '% Avance Semanal', '% Avance Previsto Acumulado',
+            'Cantidad Anterior', 'Cantidad Semanal', 'Cantidad Acumulada'
+        ]
+        
+        for col in columnas_numericas:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # 9. Añadir fecha del reporte
+        df['Fecha Reporte'] = fecha_reporte
+        
+        # 10. Identificar columnas de rubro
+        if 'Nombre Actividad' in df.columns:
+            df['Rubro'] = df['Nombre Actividad']
+        elif 'ID' in df.columns:
+            df['Rubro'] = df['ID']
+        elif 'Código Preciario' in df.columns:
+            df['Rubro'] = df['Código Preciario']
+        else:
+            # Buscar cualquier columna que pueda contener el nombre del rubro
+            for col in df.columns:
+                if 'nombre' in col.lower() or 'actividad' in col.lower() or 'descrip' in col.lower():
+                    df['Rubro'] = df[col]
+                    break
+            if 'Rubro' not in df.columns:
+                df['Rubro'] = df.iloc[:, 0]  # Usar primera columna como fallback
+        
+        print(f"  DataFrame procesado: {df.shape[0]} filas × {df.shape[1]} columnas")
+        if not df.empty:
+            print(f"  Columnas disponibles: {list(df.columns)}")
+            print(f"  Primeros rubros: {df['Rubro'].head(3).tolist() if 'Rubro' in df.columns else 'No encontrado'}")
+        
+        return df
+    
+    def _mapear_columnas(self, df):
+        """
+        Mapea nombres de columnas encontrados a nombres estándar
+        """
+        # Diccionario de mapeo: nombre_estándar -> posibles_nombres_en_archivo
+        mapeo_columnas = {
+            'Código Preciario': ['Código Preciario', 'Código', 'Codigo', 'Cód.'],
+            'ID': ['ID', 'Id', 'Código', 'Código Actividad'],
+            'Nombre Actividad': ['Nombre Actividad', 'Actividad', 'Descripción', 'Rubro', 'Tarea'],
+            'Costo Budget': ['Costo Budget', 'Budget', 'Presupuesto', 'Costo Presupuestado'],
+            'Costo EAC': ['Costo EAC', 'EAC', 'Estimado a la Conclusión'],
+            'AC Anterior': ['AC Anterior', 'Costo Real Anterior', 'Costo Real Acumulado Anterior'],
+            'AC Semanal': ['AC Semanal', 'Costo Real Semanal', 'Costo Semanal'],
+            'AC Actual': ['AC Actual', 'Costo Real Actual', 'Costo Real Acumulado'],
+            'EV Anterior': ['EV Anterior', 'Valor Ganado Anterior', 'EV Anterior'],
+            'EV Semanal': ['EV Semanal', 'Valor Ganado Semanal', 'EV Semanal'],
+            'EV Actual': ['EV Actual', 'Valor Ganado Actual', 'Valor Ganado Acumulado'],
+            'PV Costo Planificado': ['PV Costo Planificado', 'Valor Planificado', 'PV', 'Costo Planificado'],
+            '% AvanceActual Acumulado': ['% AvanceActual Acumulado', 'Avance Actual', '% Avance', 'Avance Acumulado'],
+            '% Avance Semanal': ['% Avance Semanal', 'Avance Semanal', 'Avance de la Semana'],
+            '% Avance Previsto Acumulado': ['% Avance Previsto Acumulado', 'Avance Previsto', 'Avance Programado'],
+            'Cantidad Anterior': ['Cantidad Anterior', 'Cant. Anterior', 'Cantidad Acumulada Anterior'],
+            'Cantidad Semanal': ['Cantidad Semanal', 'Cant. Semanal', 'Cantidad de la Semana'],
+            'Cantidad Acumulada': ['Cantidad Acumulada', 'Cant. Acumulada', 'Cantidad Total']
+        }
+        
+        columnas_en_df = list(df.columns)
+        resultado = {}
+        
+        for nombre_estandar, posibles_nombres in mapeo_columnas.items():
+            encontrado = None
+            for posible in posibles_nombres:
+                # Buscar coincidencia exacta o parcial
+                for col in columnas_en_df:
+                    if str(posible).lower() in str(col).lower():
+                        encontrado = col
+                        break
+                if encontrado:
+                    break
+            
+            resultado[nombre_estandar] = encontrado
+        
+        return resultado
+    
+    def consolidar_rubros(self):
+        """
+        Consolida los rubros que se repiten a través de todos los reportes
+        """
+        if not self.reportes or len(self.reportes) == 0:
+            raise ValueError("Primero debe cargar los reportes usando cargar_reportes()")
+        
+        print(f"\nConsolidando rubros de {len(self.reportes)} reportes...")
+        
+        # Recolectar todos los datos
+        todos_datos = []
+        
+        for fecha, reporte in self.reportes.items():
+            df = reporte['dataframe'].copy()
+            if not df.empty:
+                todos_datos.append(df)
+        
+        if not todos_datos:
+            print("⚠️  No hay datos para consolidar")
+            return pd.DataFrame()
+        
+        df_completo = pd.concat(todos_datos, ignore_index=True)
+        print(f"Datos totales para consolidar: {len(df_completo)} filas")
+        
+        # Verificar si tenemos columna de rubro
+        if 'Rubro' not in df_completo.columns:
+            print("⚠️  No se encontró columna 'Rubro', intentando identificar...")
+            # Intentar encontrar columna con nombres de actividades
+            for col in df_completo.columns:
+                if any(keyword in str(col).lower() for keyword in ['nombre', 'actividad', 'descrip', 'rubro', 'tarea']):
+                    df_completo['Rubro'] = df_completo[col]
+                    print(f"  Usando columna '{col}' como rubro")
+                    break
+        
+        if 'Rubro' not in df_completo.columns:
+            print("⚠️  No se pudo identificar columna de rubro, usando primera columna")
+            df_completo['Rubro'] = df_completo.iloc[:, 0]
+        
+        # Limpiar valores nulos en rubro
+        df_completo = df_completo.dropna(subset=['Rubro'])
+        
+        # Agrupar por rubro
+        print(f"Rubros únicos encontrados: {df_completo['Rubro'].nunique()}")
+        
+        # Columnas para sumar
+        columnas_sumar = []
+        for col in ['Costo Budget', 'Costo EAC', 'AC Anterior', 'AC Semanal', 'AC Actual',
+                   'EV Anterior', 'EV Semanal', 'EV Actual', 'PV Costo Planificado',
+                   'Cantidad Anterior', 'Cantidad Semanal', 'Cantidad Acumulada']:
+            if col in df_completo.columns:
+                columnas_sumar.append(col)
+        
+        # Columnas para promediar
+        columnas_promediar = []
+        for col in ['% AvanceActual Acumulado', '% Avance Semanal', '% Avance Previsto Acumulado']:
+            if col in df_completo.columns:
+                columnas_promediar.append(col)
+        
+        if not columnas_sumar:
+            print("⚠️  No se encontraron columnas numéricas para consolidar")
+            # Mostrar columnas disponibles
+            print(f"Columnas disponibles: {list(df_completo.columns)}")
+            return pd.DataFrame()
+        
+        # Agrupar y consolidar
+        print(f"Agrupando por rubro y consolidando {len(columnas_sumar)} columnas...")
+        
+        datos_agrupados = []
+        
+        for rubro, grupo in df_completo.groupby('Rubro'):
+            rubro_info = {
+                'Rubro': rubro,
+                'Total Registros': len(grupo),
+                'Primera Fecha': grupo['Fecha Reporte'].min(),
+                'Última Fecha': grupo['Fecha Reporte'].max(),
+                'Total Fechas': grupo['Fecha Reporte'].nunique()
+            }
+            
+            # Sumar columnas numéricas
+            for col in columnas_sumar:
+                rubro_info[f'Total_{col}'] = grupo[col].sum(skipna=True)
+            
+            # Promediar columnas de porcentaje
+            for col in columnas_promediar:
+                rubro_info[f'Promedio_{col}'] = grupo[col].mean(skipna=True)
+            
+            # Calcular variaciones
+            if 'Total_Costo Budget' in rubro_info and 'Total_Costo EAC' in rubro_info:
+                rubro_info['Variacion_Costo'] = rubro_info['Total_Costo Budget'] - rubro_info['Total_Costo EAC']
+            
+            if 'Total_EV Actual' in rubro_info and 'Total_AC Actual' in rubro_info:
+                rubro_info['CPI'] = (rubro_info['Total_EV Actual'] / rubro_info['Total_AC Actual'] 
+                                   if rubro_info['Total_AC Actual'] != 0 else 0)
+            
+            datos_agrupados.append(rubro_info)
+        
+        self.consolidado = pd.DataFrame(datos_agrupados)
+        
+        # Ordenar por costo total (si existe)
+        if 'Total_Costo Budget' in self.consolidado.columns:
+            self.consolidado = self.consolidado.sort_values('Total_Costo Budget', ascending=False)
+        
+        print(f"✓ Consolidado creado con {len(self.consolidado)} rubros únicos")
+        return self.consolidado
+    
+    def generar_informe_fechas(self):
+        """
+        Genera un informe detallado por fechas
+        """
+        if not self.reportes or len(self.reportes) == 0:
+            print("⚠️  No hay reportes cargados")
+            return {
+                'evolucion_temporal': pd.DataFrame(),
+                'kpis': pd.DataFrame(),
+                'avance_fisico': pd.DataFrame(),
+                'resumen_general': {
+                    'total_reportes': 0,
+                    'periodo_analizado': 'No hay datos',
+                    'rubro_mayor_costo': 'No disponible'
+                }
+            }
+        
+        # Ordenar fechas
+        fechas_ordenadas = sorted(self.reportes.keys())
+        print(f"\nGenerando informe para {len(fechas_ordenadas)} fechas...")
+        
+        # 1. Evolución temporal
+        evolucion_temporal = []
+        
+        for fecha in fechas_ordenadas:
+            df = self.reportes[fecha]['dataframe']
+            
+            resumen = {
+                'Fecha': fecha,
+                'Total Rubros': len(df) if not df.empty else 0
+            }
+            
+            # Añadir métricas si están disponibles
+            metricas = [
+                ('Costo Budget', 'Costo Budget Total'),
+                ('Costo EAC', 'Costo EAC Total'),
+                ('AC Actual', 'AC Actual Total'),
+                ('EV Actual', 'EV Actual Total'),
+                ('PV Costo Planificado', 'PV Total')
+            ]
+            
+            for col_df, col_resumen in metricas:
+                if col_df in df.columns:
+                    resumen[col_resumen] = df[col_df].sum(skipna=True)
+                else:
+                    resumen[col_resumen] = 0
+            
+            if '% AvanceActual Acumulado' in df.columns:
+                resumen['Avance Promedio'] = df['% AvanceActual Acumulado'].mean(skipna=True)
+                resumen['Rubros Completados (100%)'] = (df['% AvanceActual Acumulado'] == 100).sum()
+                resumen['Rubros sin Avance (0%)'] = (df['% AvanceActual Acumulado'] == 0).sum()
+            else:
+                resumen['Avance Promedio'] = 0
+                resumen['Rubros Completados (100%)'] = 0
+                resumen['Rubros sin Avance (0%)'] = 0
+            
+            evolucion_temporal.append(resumen)
+        
+        df_evolucion = pd.DataFrame(evolucion_temporal)
+        
+        # 2. KPIs por fecha
+        kpis_por_fecha = []
+        
+        for fecha in fechas_ordenadas:
+            df = self.reportes[fecha]['dataframe']
+            
+            if df.empty:
+                continue
+            
+            if 'AC Actual' in df.columns and 'EV Actual' in df.columns and 'PV Costo Planificado' in df.columns:
+                ac_total = df['AC Actual'].sum(skipna=True)
+                ev_total = df['EV Actual'].sum(skipna=True)
+                pv_total = df['PV Costo Planificado'].sum(skipna=True)
+                
+                # Calcular KPIs
+                cpi = ev_total / ac_total if ac_total != 0 else 0
+                spi = ev_total / pv_total if pv_total != 0 else 0
+                
+                kpis = {
+                    'Fecha': fecha,
+                    'CPI': cpi,
+                    'SPI': spi,
+                    'CV': ev_total - ac_total,
+                    'SV': ev_total - pv_total,
+                    'AC Total': ac_total,
+                    'EV Total': ev_total,
+                    'PV Total': pv_total
+                }
+                
+                kpis_por_fecha.append(kpis)
+        
+        df_kpis = pd.DataFrame(kpis_por_fecha)
+        
+        # 3. Avance físico
+        avance_fisico_por_fecha = []
+        
+        for fecha in fechas_ordenadas:
+            df = self.reportes[fecha]['dataframe']
+            
+            if df.empty:
+                continue
+            
+            if '% AvanceActual Acumulado' in df.columns and '% Avance Previsto Acumulado' in df.columns:
+                avance_real = df['% AvanceActual Acumulado'].mean(skipna=True)
+                avance_previsto = df['% Avance Previsto Acumulado'].mean(skipna=True)
+                desviacion = avance_real - avance_previsto
+                
+                # Determinar estado
+                if desviacion >= 5:
+                    estado = "ADELANTADO"
+                elif desviacion >= -5:
+                    estado = "EN TIEMPO"
+                elif desviacion >= -10:
+                    estado = "LEVE RETRASO"
+                elif desviacion >= -20:
+                    estado = "RETRASO MODERADO"
+                else:
+                    estado = "RETRASO SEVERO"
+                
+                avance_fisico = {
+                    'Fecha': fecha,
+                    'Avance Real (%)': avance_real,
+                    'Avance Previsto (%)': avance_previsto,
+                    'Desviación (%)': desviacion,
+                    'Estado': estado
+                }
+                
+                avance_fisico_por_fecha.append(avance_fisico)
+        
+        df_avance_fisico = pd.DataFrame(avance_fisico_por_fecha)
+        
+        # 4. Top rubros
+        top_rubros_por_fecha = {}
+        
+        for fecha in fechas_ordenadas:
+            df = self.reportes[fecha]['dataframe']
+            
+            if df.empty:
+                continue
+            
+            if 'Costo Budget' in df.columns and 'Rubro' in df.columns:
+                # Tomar top 5 rubros por costo
+                top5 = df.nlargest(5, 'Costo Budget')[['Rubro', 'Costo Budget', '% AvanceActual Acumulado']].copy()
+                top5['Fecha'] = fecha
+                top_rubros_por_fecha[fecha] = top5
+        
+        # 5. Resumen general
+        if self.consolidado is not None and not self.consolidado.empty:
+            if 'Total_Costo Budget' in self.consolidado.columns:
+                idx_mayor = self.consolidado['Total_Costo Budget'].idxmax()
+                rubro_mayor_costo = self.consolidado.loc[idx_mayor, 'Rubro']
+            else:
+                rubro_mayor_costo = "No disponible"
+        else:
+            rubro_mayor_costo = "No disponible"
+        
+        resumen_general = {
+            'total_reportes': len(fechas_ordenadas),
+            'periodo_analizado': f"{fechas_ordenadas[0]} - {fechas_ordenadas[-1]}" if fechas_ordenadas else "No hay datos",
+            'dias_analizados': len(fechas_ordenadas),
+            'rubro_mayor_costo': rubro_mayor_costo
+        }
+        
+        informe_completo = {
+            'evolucion_temporal': df_evolucion,
+            'kpis': df_kpis,
+            'avance_fisico': df_avance_fisico,
+            'top_rubros': top_rubros_por_fecha,
+            'resumen_general': resumen_general
+        }
+        
+        print(f"✓ Informe generado exitosamente")
+        return informe_completo
+    
+    def exportar_informes(self, ruta_salida=None):
+        """
+        Exporta todos los informes a archivos Excel
+        """
+        if not self.reportes or len(self.reportes) == 0:
+            print("⚠️  No hay datos para exportar")
+            return
+        
+        if ruta_salida is None:
+            ruta_salida = os.path.join(self.ruta_carpeta, 'informes_generados')
+        
+        if not os.path.exists(ruta_salida):
+            os.makedirs(ruta_salida)
+        
+        print(f"\nExportando informes a: {ruta_salida}")
+        
+        # 1. Exportar informe por fechas
+        informe_fechas = self.generar_informe_fechas()
+        
+        try:
+            with pd.ExcelWriter(os.path.join(ruta_salida, 'informe_por_fechas.xlsx'), engine='openpyxl') as writer:
+                # Evolución temporal
+                if not informe_fechas['evolucion_temporal'].empty:
+                    informe_fechas['evolucion_temporal'].to_excel(writer, sheet_name='Evolución', index=False)
+                
+                # KPIs
+                if not informe_fechas['kpis'].empty:
+                    informe_fechas['kpis'].to_excel(writer, sheet_name='KPIs', index=False)
+                
+                # Avance físico
+                if not informe_fechas['avance_fisico'].empty:
+                    informe_fechas['avance_fisico'].to_excel(writer, sheet_name='Avance', index=False)
+                
+                # Top rubros por fecha
+                for fecha, df_top in informe_fechas['top_rubros'].items():
+                    if not df_top.empty:
+                        sheet_name = f"Top_{fecha.replace('-', '')}"[:31]
+                        df_top.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            print(f"✓ Informe por fechas: informe_por_fechas.xlsx")
+        except Exception as e:
+            print(f"✗ Error al exportar informe por fechas: {str(e)}")
+        
+        # 2. Exportar consolidado de rubros
+        if self.consolidado is not None and not self.consolidado.empty:
+            try:
+                self.consolidado.to_excel(
+                    os.path.join(ruta_salida, 'consolidado_rubros.xlsx'),
+                    index=False
+                )
+                print(f"✓ Consolidado de rubros: consolidado_rubros.xlsx")
+            except Exception as e:
+                print(f"✗ Error al exportar consolidado: {str(e)}")
+        
+        # 3. Exportar datos brutos por fecha
+        try:
+            with pd.ExcelWriter(os.path.join(ruta_salida, 'datos_brutos.xlsx'), engine='openpyxl') as writer:
+                for fecha, reporte in self.reportes.items():
+                    df = reporte['dataframe']
+                    if not df.empty:
+                        sheet_name = f"Datos_{fecha.replace('-', '')}"[:31]
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            print(f"✓ Datos brutos: datos_brutos.xlsx")
+        except Exception as e:
+            print(f"✗ Error al exportar datos brutos: {str(e)}")
+        
+        # 4. Exportar resumen ejecutivo
+        self._exportar_resumen_ejecutivo(ruta_salida, informe_fechas)
+        
+        print(f"\n📁 Todos los informes exportados en: {ruta_salida}")
+    
+    def _exportar_resumen_ejecutivo(self, ruta_salida, informe_fechas):
+        """Exporta un resumen ejecutivo"""
+        resumen_path = os.path.join(ruta_salida, 'resumen_ejecutivo.txt')
+        
+        with open(resumen_path, 'w', encoding='utf-8') as f:
+            f.write("=" * 80 + "\n")
+            f.write("RESUMEN EJECUTIVO - ANÁLISIS DE REPORTES DE OBRA\n")
+            f.write("=" * 80 + "\n\n")
+            
+            f.write("📊 INFORMACIÓN GENERAL\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"• Reportes analizados: {informe_fechas['resumen_general']['total_reportes']}\n")
+            f.write(f"• Período: {informe_fechas['resumen_general']['periodo_analizado']}\n")
+            f.write(f"• Rubro de mayor costo: {informe_fechas['resumen_general']['rubro_mayor_costo']}\n\n")
+            
+            # KPIs finales
+            if not informe_fechas['kpis'].empty:
+                f.write("📈 KPIs FINALES\n")
+                f.write("-" * 40 + "\n")
+                ultimo_kpi = informe_fechas['kpis'].iloc[-1]
+                
+                f.write(f"• CPI (Eficiencia de Costos): {ultimo_kpi.get('CPI', 'N/A'):.3f}\n")
+                f.write(f"• SPI (Eficiencia de Cronograma): {ultimo_kpi.get('SPI', 'N/A'):.3f}\n")
+                f.write(f"• Variación de Costo (CV): ${ultimo_kpi.get('CV', 0):,.2f}\n")
+                f.write(f"• Variación de Cronograma (SV): ${ultimo_kpi.get('SV', 0):,.2f}\n\n")
+            
+            # Avance físico
+            if not informe_fechas['avance_fisico'].empty:
+                f.write("🏗️  AVANCE FÍSICO\n")
+                f.write("-" * 40 + "\n")
+                ultimo_avance = informe_fechas['avance_fisico'].iloc[-1]
+                
+                f.write(f"• Avance Real: {ultimo_avance.get('Avance Real (%)', 0):.1f}%\n")
+                f.write(f"• Avance Previsto: {ultimo_avance.get('Avance Previsto (%)', 0):.1f}%\n")
+                f.write(f"• Desviación: {ultimo_avance.get('Desviación (%)', 0):.1f}%\n")
+                f.write(f"• Estado: {ultimo_avance.get('Estado', 'N/A')}\n\n")
+            
+            # Recomendaciones
+            f.write("💡 RECOMENDACIONES\n")
+            f.write("-" * 40 + "\n")
+            
+            if not informe_fechas['avance_fisico'].empty:
+                estado = informe_fechas['avance_fisico'].iloc[-1].get('Estado', '')
+                
+                if 'RETRASO SEVERO' in estado:
+                    f.write("🚨 ACCIÓN INMEDIATA REQUERIDA\n")
+                    f.write("1. Implementar plan de recuperación agresivo\n")
+                    f.write("2. Revisar recursos críticos\n")
+                    f.write("3. Reportar desviaciones a dirección\n")
+                elif 'RETRASO' in estado:
+                    f.write("⚠️  ACCIONES CORRECTIVAS\n")
+                    f.write("1. Identificar cuellos de botella\n")
+                    f.write("2. Optimizar secuencia de actividades\n")
+                    f.write("3. Monitoreo diario\n")
+                else:
+                    f.write("✅ ESTADO SATISFACTORIO\n")
+                    f.write("1. Mantener ritmo actual\n")
+                    f.write("2. Continuar monitoreo semanal\n")
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write(f"Generado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 80 + "\n")
+        
+        print(f"✓ Resumen ejecutivo: resumen_ejecutivo.txt")
+
+
+# ============================================================================
+# FUNCIÓN PRINCIPAL SIMPLIFICADA
+# ============================================================================
+
+def analizar_reportes_simplificado():
+    """
+    Función principal simplificada
+    """
+    print("=" * 80)
+    print("ANALIZADOR DE REPORTES SEMANALES DE OBRA")
+    print("=" * 80)
+    
+    # Ruta de la carpeta (puedes cambiarla por tu ruta específica)
+    ruta_carpeta = input("📁 Ruta de la carpeta con reportes: ").strip()
+    
+    if not os.path.exists(ruta_carpeta):
+        print(f"❌ La carpeta no existe: {ruta_carpeta}")
+        return
+    
+    # Crear analizador
+    analizador = AnalizadorReportesObra(ruta_carpeta)
+    
+    try:
+        # 1. Cargar reportes
+        print("\n" + "=" * 80)
+        print("1. CARGANDO REPORTES...")
+        print("=" * 80)
+        analizador.cargar_reportes()
+        
+        if not analizador.reportes:
+            print("❌ No se pudieron cargar reportes. Verifica el formato de los archivos.")
+            return
+        
+        # 2. Consolidar rubros
+        print("\n" + "=" * 80)
+        print("2. CONSOLIDANDO RUBROS...")
+        print("=" * 80)
+        consolidado = analizador.consolidar_rubros()
+        
+        if consolidado is not None and not consolidado.empty:
+            print(f"\n✓ Rubros consolidados: {len(consolidado)}")
+            print("\nTop 5 rubros por costo:")
+            print(consolidado[['Rubro', 'Total_Costo Budget']].head().to_string(index=False))
+        else:
+            print("⚠️  No se pudo generar consolidado")
+        
+        # 3. Generar informe
+        print("\n" + "=" * 80)
+        print("3. GENERANDO INFORME...")
+        print("=" * 80)
+        informe = analizador.generar_informe_fechas()
+        
+        # Mostrar resumen
+        if not informe['evolucion_temporal'].empty:
+            print("\n📅 EVOLUCIÓN TEMPORAL:")
+            print(informe['evolucion_temporal'][['Fecha', 'Avance Promedio', 'Costo EAC Total']].to_string(index=False))
+        
+        if not informe['kpis'].empty:
+            print("\n📊 KPIs:")
+            print(informe['kpis'][['Fecha', 'CPI', 'SPI']].to_string(index=False))
+        
+        if not informe['avance_fisico'].empty:
+            print("\n🏗️  AVANCE FÍSICO:")
+            print(informe['avance_fisico'].to_string(index=False))
+        
+        # 4. Exportar
+        print("\n" + "=" * 80)
+        print("4. EXPORTANDO...")
+        print("=" * 80)
+        analizador.exportar_informes()
+        
+        print("\n" + "=" * 80)
+        print("✅ ANÁLISIS COMPLETADO")
+        print("=" * 80)
+        
+    except Exception as e:
+        print(f"\n❌ Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+
+# ============================================================================
+# EJECUCIÓN
+# ============================================================================
+
+if __name__ == "__main__":
+    # Ejecutar análisis
+    analizar_reportes_simplificado()
+    
+    # O usar directamente:
+    # analizador = AnalizadorReportesObra("C:/tu/ruta")
+    # analizador.cargar_reportes()
+    # analizador.consolidar_rubros()
+    # analizador.exportar_informes()
