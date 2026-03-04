@@ -20,7 +20,7 @@ ESTRUCTURA ESPERADA DEL EXCEL:
 
 import os
 import sys
-import sqlite3
+import psycopg2
 import datetime
 import warnings
 warnings.filterwarnings("ignore")
@@ -834,15 +834,25 @@ def _determinar_estado(spi, cpi, retraso):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. BASE DE DATOS SQLite
+# 6. BASE DE DATOS PostgreSQL (Neon)
 # ─────────────────────────────────────────────────────────────────────────────
+
+import os
+import psycopg2
+import datetime
+import pandas as pd
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+
 def inicializar_db():
     """Crea la tabla si no existe."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS reportes (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                  SERIAL PRIMARY KEY,
             nombre_archivo      TEXT,
             fecha_reporte       TEXT,
             spi                 REAL,
@@ -864,12 +874,14 @@ def inicializar_db():
             fecha_procesamiento TEXT
         )
     """)
+
     conn.commit()
+    cursor.close()
     conn.close()
 
 
 def guardar_en_db(nombre_archivo, meta, totales, avance_real, avance_planificado):
-    """Inserta o actualiza el registro del reporte en SQLite."""
+    """Inserta o actualiza el registro del reporte en PostgreSQL."""
     inicializar_db()
 
     def _safe(v):
@@ -908,35 +920,73 @@ def guardar_en_db(nombre_archivo, meta, totales, avance_real, avance_planificado
         datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     )
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
-    # Check if file already exists → update; else insert
-    cursor.execute("SELECT id FROM reportes WHERE nombre_archivo = ? AND fecha_reporte = ?",
-                   (record[0], record[1]))
+
+    # Verificar si ya existe el registro
+    cursor.execute(
+        "SELECT id FROM reportes WHERE nombre_archivo = %s AND fecha_reporte = %s",
+        (record[0], record[1])
+    )
     existing = cursor.fetchone()
+
     if existing:
         cursor.execute("""
             UPDATE reportes SET
-                spi=?, cpi=?, avance_real=?, avance_planificado=?,
-                costo_budget=?, costo_eac=?, costo_real=?, ev=?, pv=?,
-                fecha_inicio_plan=?, fecha_fin_plan=?, fecha_inicio_real=?,
-                fecha_fin_real=?, plazo_previsto=?, dias_disruptivos=?,
-                plazo_ajustado=?, fecha_procesamiento=?
-            WHERE id=?
+                spi=%s,
+                cpi=%s,
+                avance_real=%s,
+                avance_planificado=%s,
+                costo_budget=%s,
+                costo_eac=%s,
+                costo_real=%s,
+                ev=%s,
+                pv=%s,
+                fecha_inicio_plan=%s,
+                fecha_fin_plan=%s,
+                fecha_inicio_real=%s,
+                fecha_fin_real=%s,
+                plazo_previsto=%s,
+                dias_disruptivos=%s,
+                plazo_ajustado=%s,
+                fecha_procesamiento=%s
+            WHERE id=%s
         """, record[2:] + (existing[0],))
+
         print(f"  → DB actualizado (id={existing[0]}): {nombre_archivo}")
+
     else:
         cursor.execute("""
             INSERT INTO reportes (
-                nombre_archivo, fecha_reporte, spi, cpi, avance_real,
-                avance_planificado, costo_budget, costo_eac, costo_real, ev, pv,
-                fecha_inicio_plan, fecha_fin_plan, fecha_inicio_real, fecha_fin_real,
-                plazo_previsto, dias_disruptivos, plazo_ajustado, fecha_procesamiento
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                nombre_archivo,
+                fecha_reporte,
+                spi,
+                cpi,
+                avance_real,
+                avance_planificado,
+                costo_budget,
+                costo_eac,
+                costo_real,
+                ev,
+                pv,
+                fecha_inicio_plan,
+                fecha_fin_plan,
+                fecha_inicio_real,
+                fecha_fin_real,
+                plazo_previsto,
+                dias_disruptivos,
+                plazo_ajustado,
+                fecha_procesamiento
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
         """, record)
-        print(f"  → DB insertado (id={cursor.lastrowid}): {nombre_archivo}")
+
+        new_id = cursor.fetchone()[0]
+        print(f"  → DB insertado (id={new_id}): {nombre_archivo}")
 
     conn.commit()
+    cursor.close()
     conn.close()
 
 
